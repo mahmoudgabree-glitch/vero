@@ -1,6 +1,23 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
+<!-- 
+╔══════════════════════════════════════════════════════════════╗
+║  تطبيق ڤيرو - Vero App                                       ║
+║  للمزامنة السحابية (ظهور المنتجات لجميع المستخدمين):        ║
+║                                                              ║
+║  1. اذهب إلى https://jsonbin.io                              ║
+║  2. سجل حساب مجاني                                           ║
+║  3. اذهب إلى API Keys وانسخ الـ Master Key                  ║
+║  4. اذهب إلى Bins وانشئ Bin جديد                             ║
+║  5. انسخ الـ Bin ID                                          ║
+║  6. افتح هذا الملف في محرر نصوص                              ║
+║  7. ابحث عن JSONBIN_API_KEY واستبدل القيمة                   ║
+║  8. ابحث عن JSONBIN_BIN_ID واستبدل القيمة                    ║
+║  9. غيّر useCloudSync = false إلى useCloudSync = true        ║
+║  10. ارفع الملف على GitHub Pages                             ║
+╚══════════════════════════════════════════════════════════════╝
+-->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#ffffff">
@@ -974,10 +991,14 @@
             <h2>بيع منتج</h2>
             <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeSellModal()"><i class="fas fa-times"></i></button>
         </div>
-        <div class="image-upload" onclick="showToast('اختر صوراً من معرض الصور')">
-            <i class="fas fa-camera"></i>
-            <span>أضف صور المنتج</span>
-            <span style="font-size:12px">(حد أقصى 8 صور)</span>
+        <div class="image-upload" id="imageUploadBox" onclick="document.getElementById('fileInput').click()">
+            <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleImageSelect(event)">
+            <div id="uploadPreview" style="display:flex;flex-direction:column;align-items:center;gap:10px">
+                <i class="fas fa-camera" id="uploadIcon"></i>
+                <span id="uploadText">أضف صور المنتج</span>
+                <span style="font-size:12px" id="uploadSubtext">(حد أقصى 8 صور)</span>
+            </div>
+            <div id="imagePreviewGrid" style="display:none;flex-wrap:wrap;gap:8px;justify-content:center;width:100%;padding:10px"></div>
         </div>
         <div class="form-group">
             <label>العنوان</label>
@@ -1057,6 +1078,19 @@
 </nav>
 
 <script>
+// ==================== CLOUD DATABASE CONFIG ====================
+// JSONBin.io - Free cloud database
+// 1. Go to https://jsonbin.io and create free account
+// 2. Get your Master Key from API Keys page
+// 3. Create a new Bin and copy the Bin ID
+// 4. Replace the values below:
+
+const JSONBIN_API_KEY = "$2a$10$YourMasterKeyHere"; // استبدل هذا بمفتاحك من JSONBin.io
+const JSONBIN_BIN_ID = "your-bin-id-here"; // استبدل هذا بـ Bin ID
+const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+
+let useCloudSync = false; // تفعيل المزامنة السحابية
+
 // ==================== ADMIN CREDENTIALS ====================
 const ADMIN_EMAIL = "mahmoudaljabri09@gmail.com";
 const ADMIN_PASSWORD = "1742026";
@@ -1093,12 +1127,13 @@ window.addEventListener('load', () => {
     setTimeout(() => {
         document.getElementById('splash').classList.add('hidden');
     }, 1800);
-    loadProducts();
-    renderProducts(products);
-    loadCart();
-    loadLikes();
-    loadListings();
-    loadOrders();
+    // Load from cloud or local
+    syncAndLoad().then(() => {
+        loadCart();
+        loadLikes();
+        loadListings();
+        loadOrders();
+    });
 });
 
 // ==================== PRODUCTS ====================
@@ -1253,6 +1288,61 @@ function closeSellModal() {
     document.body.style.overflow = '';
 }
 
+let selectedImages = [];
+
+function handleImageSelect(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    selectedImages = Array.from(files).slice(0, 8);
+    const previewGrid = document.getElementById('imagePreviewGrid');
+    const uploadIcon = document.getElementById('uploadIcon');
+    const uploadText = document.getElementById('uploadText');
+    const uploadSubtext = document.getElementById('uploadSubtext');
+
+    previewGrid.innerHTML = '';
+    previewGrid.style.display = 'flex';
+
+    if (selectedImages.length > 0) {
+        uploadIcon.style.display = 'none';
+        uploadText.textContent = selectedImages.length + ' صورة محددة';
+        uploadSubtext.textContent = 'اضغط لإضافة المزيد';
+    }
+
+    selectedImages.forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const imgDiv = document.createElement('div');
+            imgDiv.style.cssText = 'position:relative;width:70px;height:70px;border-radius:10px;overflow:hidden;';
+            imgDiv.innerHTML = `
+                <img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover">
+                <button onclick="event.stopPropagation();removeImage(${index})" style="position:absolute;top:2px;left:2px;background:rgba(231,76,60,0.9);color:white;border:none;width:20px;height:20px;border-radius:50%;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+            `;
+            previewGrid.appendChild(imgDiv);
+        };
+        reader.readAsDataURL(file);
+    });
+
+    showToast('تم اختيار ' + selectedImages.length + ' صورة');
+}
+
+function removeImage(index) {
+    selectedImages.splice(index, 1);
+    // Re-trigger the preview update
+    const input = document.getElementById('fileInput');
+    const dt = new DataTransfer();
+    selectedImages.forEach(file => dt.items.add(file));
+    input.files = dt.files;
+    handleImageSelect({target: {files: input.files}});
+
+    if (selectedImages.length === 0) {
+        document.getElementById('uploadIcon').style.display = 'block';
+        document.getElementById('uploadText').textContent = 'أضف صور المنتج';
+        document.getElementById('uploadSubtext').textContent = '(حد أقصى 8 صور)';
+        document.getElementById('imagePreviewGrid').style.display = 'none';
+    }
+}
+
 function submitListing() {
     const title = document.getElementById('sellTitle').value.trim();
     const price = parseFloat(document.getElementById('sellPrice').value);
@@ -1265,6 +1355,11 @@ function submitListing() {
         return;
     }
 
+    let emoji = "📦";
+    if (selectedImages.length > 0) {
+        emoji = "🖼️";
+    }
+
     const newProduct = {
         id: Date.now(),
         name: title,
@@ -1274,8 +1369,9 @@ function submitListing() {
         size: size,
         condition: "كالجديد",
         seller: "زائر",
-        emoji: "📦",
-        desc: desc || "منتج جديد للبيع"
+        emoji: emoji,
+        desc: desc || "منتج جديد للبيع",
+        images: selectedImages.length
     };
 
     userListings.unshift(newProduct);
@@ -1286,6 +1382,13 @@ function submitListing() {
     document.getElementById('sellTitle').value = '';
     document.getElementById('sellPrice').value = '';
     document.getElementById('sellDesc').value = '';
+    selectedImages = [];
+    document.getElementById('uploadIcon').style.display = 'block';
+    document.getElementById('uploadText').textContent = 'أضف صور المنتج';
+    document.getElementById('uploadSubtext').textContent = '(حد أقصى 8 صور)';
+    document.getElementById('imagePreviewGrid').style.display = 'none';
+    document.getElementById('imagePreviewGrid').innerHTML = '';
+    document.getElementById('fileInput').value = '';
 
     closeSellModal();
     showToast('تم نشر إعلانك!');
@@ -1699,8 +1802,67 @@ function updateAdminAnalytics() {
     document.getElementById('totalRevenue').textContent = revenue + ' ر.س';
 }
 
+// ==================== CLOUD SYNC FUNCTIONS ====================
+async function syncProductsToCloud() {
+    if (!useCloudSync || JSONBIN_API_KEY.includes("YourMasterKey")) return;
+    try {
+        const response = await fetch(JSONBIN_URL, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': JSONBIN_API_KEY
+            },
+            body: JSON.stringify({ products: products, lastUpdate: Date.now() })
+        });
+        if (response.ok) {
+            console.log('Synced to cloud successfully');
+        }
+    } catch (e) {
+        console.error('Cloud sync failed:', e);
+    }
+}
+
+async function loadProductsFromCloud() {
+    if (!useCloudSync || JSONBIN_API_KEY.includes("YourMasterKey")) return false;
+    try {
+        const response = await fetch(JSONBIN_URL, {
+            method: 'GET',
+            headers: {
+                'X-Master-Key': JSONBIN_API_KEY
+            }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.record && data.record.products) {
+                products = data.record.products;
+                saveProducts();
+                renderProducts(products);
+                updateAdminStats();
+                console.log('Loaded from cloud successfully');
+                return true;
+            }
+        }
+    } catch (e) {
+        console.error('Cloud load failed:', e);
+    }
+    return false;
+}
+
+async function syncAndLoad() {
+    // Try to load from cloud first
+    const loaded = await loadProductsFromCloud();
+    if (!loaded) {
+        // Fallback to local
+        loadProducts();
+        renderProducts(products);
+    }
+}
+
 // ==================== STORAGE ====================
-function saveProducts() { localStorage.setItem('vero_products', JSON.stringify(products)); }
+function saveProducts() { 
+    localStorage.setItem('vero_products', JSON.stringify(products)); 
+    syncProductsToCloud(); // Sync to cloud after saving
+}
 function loadProducts() { 
     const saved = localStorage.getItem('vero_products'); 
     if (saved) products = JSON.parse(saved);
